@@ -1,0 +1,58 @@
+﻿
+'------------------------------VERSION 1-------------------------------'
+
+Version														integer
+
+Number of frames in X direction								integer
+Number of frames in Y direction								integer
+
+Bitmap width												Integer
+Bitmap height												Integer
+  
+'------------------------------------Preview bitmap--------------------'
+
+Bitmap width												Integer
+Bitmap height												Integer
+Bytes length												Integer
+bmp bytes													Byte array
+
+'-----------------------------------ROI-------------------------------'
+ROImade														Integer
+Width														Integer
+Height														Integer
+Top	(Y)														Integer
+Left (X)														Integer
+'-----------------------------------Reserved for later----------------'
+Byte array 1000												Byte array
+
+/////////////////////////////////////////////////////////////////////////
+I added the posibility to save only brightfield or FL images
+
+
+'------------------------------VERSION 2-------------------------------'
+
+Version														integer
+
+Number of frames in X direction								integer
+Number of frames in Y direction								integer
+
+Bitmap width												Integer
+Bitmap height												Integer
+  
+'------------------------------------Preview bitmap--------------------'
+
+Bitmap width												Integer
+Bitmap height												Integer
+Bytes length												Integer
+bmp bytes													Byte array
+
+'-----------------------------------ROI-------------------------------'
+ROImade														Integer
+Width														Integer
+Height														Integer
+Top	(Y)														Integer
+Left (X)													Integer
+'-------------------------------Type of scan---------------------------'
+Scantype													byte
+'-----------------------------------Reserved for later----------------'
+Byte array 999												Byte array
