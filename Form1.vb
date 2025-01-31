@@ -11,6 +11,8 @@ Imports MVStitchingEnclouser
 Imports System.Drawing
 Imports System.Drawing.Imaging
 Imports System.Drawing.Drawing2D
+Imports System.Windows.Forms
+Imports System.Xml.Linq
 
 Public Class Form1
     Dim IsDragging As Boolean
@@ -26,31 +28,9 @@ Public Class Form1
     Dim Objective As Objectives
     Dim IamLive As Boolean
     Private svsViewer As SVSViewer
+    Private PatientID As String = ""
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
-
-        'Port1.Close()
-        ''T = New test(60, Pbar)
-        ''T.EstimateProfile()
-        ''PictureBox_Preview.Image = T.ZmapBmp.bmp
-        ''Exit Sub
-        'Camera = New XimeaXIq
-        'ReDim FlatFieldB(2048 * 2048 - 1)
-        'ReDim FlatFieldG(2048 * 2048 - 1)
-        'ReDim FlatFieldR(2048 * 2048 - 1)
-
-        'LoadFlatField(AcqusitionTypeEnum.FiBi)
-
-        'Dehaze = New DehazeClass(2048, 2048, 0.001, 0.3, 0.7)
-        'Dim bytes() As Byte
-        'Dim bmp As New Bitmap(2048, 2048, Imaging.PixelFormat.Format24bppRgb)
-        'BitmapToBytes(New Bitmap("C:\Users\HistoliX\OneDrive\Desktop\p.jpg"), bytes)
-        'Dehaze.Apply(bytes)
-        'byteToBitmap(bytes, bmp)
-        'bmp.Save("C:\Users\HistoliX\OneDrive\Desktop\Dehazed.bmp", ImageFormat.Bmp)
-        'End
-
         LoadObjects(Pbar, Chart1)
 
         TextBox21.Text = Setting.Gett("ZSTACRRANGE")
@@ -81,9 +61,6 @@ Public Class Form1
         TextBox_RichardScale.Text = RichardScale
         TextBox_exposure.Text = Setting.Gett("exposure")
 
-
-
-
         TextBox_FOVX.Text = Stage.FOVX
         TextBox_FOVY.Text = Stage.FOVY
 
@@ -100,19 +77,189 @@ Public Class Form1
         ComboBox_Objetives.SelectedIndex = 0
         Preview.Scale = Preview.ROI_W / PictureBox_Preview.Width
 
-        ' Code set to make the tab control easier to view
-        ' Set the DrawMode to OwnerDrawFixed
         TabControl1.DrawMode = TabDrawMode.OwnerDrawFixed
-        ' Set the Appearance to Normal or Buttons
         TabControl1.Appearance = TabAppearance.Normal
         AddHandler TabControl1.DrawItem, AddressOf TabControl1_DrawItem
 
-        ' Initialize SVSViewer with the existing PictureBox0
         svsViewer = New SVSViewer(PictureBox0)
         svsViewer.Dock = DockStyle.Fill
-
-
     End Sub
+
+    Private Sub Button6_Click(sender As Object, e As EventArgs) Handles Button6.Click
+        If String.IsNullOrEmpty(PatientID) Then
+            PatientID = InputBox("Please enter the Patient ID:", "Patient Identification")
+            If String.IsNullOrWhiteSpace(PatientID) Then
+                MsgBox("Patient ID is required to proceed.", MsgBoxStyle.Exclamation, "Error")
+                Exit Sub
+            End If
+        End If
+
+        Dim baseFolder As String = "E:\data"
+        If Not Directory.Exists(baseFolder) Then
+            MsgBox("Error: Data folder not found. Please check settings.", MsgBoxStyle.Critical, "Error")
+            Exit Sub
+        End If
+
+        Dim patientFolder As String = Path.Combine(baseFolder, PatientID)
+        If Not Directory.Exists(patientFolder) Then
+            Directory.CreateDirectory(patientFolder)
+        End If
+
+        Preview.MovetoLoad()
+        MsgBox("Load the sample and hit OK.")
+        UpdateLED(False)
+        ExitLive()
+        Preview.MovetoPreview()
+        GetPreview()
+        Stage.GoToMiddle()
+        GoLive()
+    End Sub
+
+    Private Sub Button31_Click(sender As Object, e As EventArgs) Handles Button_Scan2.Click
+        Debug.WriteLine("Button31_Click: Method triggered.")
+
+        ' Ensure a Patient ID is entered before scanning
+        If String.IsNullOrEmpty(PatientID) Then
+            PatientID = InputBox("Please enter the Patient ID:", "Patient Identification")
+            If String.IsNullOrWhiteSpace(PatientID) Then
+                MsgBox("Patient ID is required to proceed.", MsgBoxStyle.Exclamation, "Error")
+                Exit Sub
+            End If
+        End If
+
+        ' Exit live preview before starting scan
+        ExitLive()
+
+        ' Handle scan toggling
+        If Scanning Then
+            Debug.WriteLine("Button31_Click: Scanning is True, exiting early.")
+            Scanning = False
+            Button_Scan2.Text = "Scan"
+            GoLive()
+            Exit Sub
+        End If
+
+        ' Confirm scan process
+        If MessageBox.Show("The scan process is about to begin. Ensure all settings are correct. Continue?",
+                   "Start Scan", MessageBoxButtons.YesNo, MessageBoxIcon.Information) = DialogResult.No Then
+            Debug.WriteLine("Button31_Click: User clicked No on the MessageBox.")
+            GoLive()
+            Exit Sub
+        End If
+
+        ' Format timestamp as YYYY-MM-DD_hh-mm
+        Dim timestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HH-mm")
+        Dim scanFolder As String = Path.Combine("E:\data", PatientID, timestamp & "_" & PatientID)
+
+        ' Ensure directory exists
+        If Not Directory.Exists(scanFolder) Then
+            Directory.CreateDirectory(scanFolder)
+        End If
+
+        MsgBox("Scan folder created: " & scanFolder, MsgBoxStyle.Information, "Scan Ready")
+
+        ' Define file paths with correct format
+        Dim svsFilePath As String = Path.Combine(scanFolder, timestamp & "_" & PatientID & ".svs")
+        Dim imageFilePath As String = Path.Combine(scanFolder, timestamp & "_" & PatientID & ".png")
+
+        ' Start FastScan process and save the SVS file
+        Debug.WriteLine("Button31_Click: Starting FastScan.")
+        FastScan(TextBoxX.Text, TextBoxY.Text, ScanOverlap, svsFilePath)
+
+        ' **Fix: Capture and save the image correctly**
+        Dim capturedImage As Bitmap = CaptureImage()
+        If capturedImage IsNot Nothing Then
+            capturedImage.Save(imageFilePath, Imaging.ImageFormat.Png)
+            Debug.WriteLine("Image successfully saved: " & imageFilePath)
+        Else
+            Debug.WriteLine("Error: Image capture failed.")
+            MsgBox("Image capture failed. Please try again.", MsgBoxStyle.Exclamation, "Error")
+        End If
+
+        ' Log file paths for debugging
+        Debug.WriteLine("SVS File Path: " & svsFilePath)
+        Debug.WriteLine("Image File Path: " & imageFilePath)
+        SaveScanData()
+    End Sub
+
+    Private Function CaptureImage() As Bitmap
+        Try
+            While Camera.busy
+                Thread.Sleep(500)
+            End While
+
+            If Camera Is Nothing Then
+                Return Nothing
+            End If
+
+            Camera.Trigger()
+            Thread.Sleep(500)
+
+            Dim img As Bitmap = Camera.captureBmp()
+
+            If img IsNot Nothing Then
+                Return New Bitmap(img)
+            Else
+                Return Nothing
+            End If
+        Catch ex As Exception
+            Return Nothing
+        End Try
+    End Function
+
+    Private Sub SaveScanData()
+        If String.IsNullOrEmpty(PatientID) Then
+            MsgBox("Patient ID is missing. Cannot save scan data.", MsgBoxStyle.Exclamation, "Error")
+            Exit Sub
+        End If
+
+        Dim timestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HH-mm")
+        Dim scanFolder As String = Path.Combine("E:\data", PatientID, timestamp & "_" & PatientID)
+
+        If Not Directory.Exists(scanFolder) Then
+            Directory.CreateDirectory(scanFolder)
+        End If
+
+        Dim svsFilePath As String = Path.Combine(scanFolder, timestamp & "_" & PatientID & ".svs")
+        Dim imageFilePath As String = Path.Combine(scanFolder, timestamp & "_" & PatientID & ".png")
+
+        FastScan(TextBoxX.Text, TextBoxY.Text, ScanOverlap, svsFilePath)
+
+        Dim capturedImage As Bitmap = CaptureImage()
+        If capturedImage IsNot Nothing Then
+            Try
+                capturedImage.Save(imageFilePath, Imaging.ImageFormat.Png)
+            Catch ex As Exception
+                MsgBox("Error saving image. Check file permissions.", MsgBoxStyle.Critical, "Error")
+            End Try
+        Else
+            MsgBox("Image capture failed. Please try again.", MsgBoxStyle.Exclamation, "Error")
+        End If
+    End Sub
+
+    Private Sub Button_Done_Click(sender As Object, e As EventArgs) Handles Button_Done.Click
+        ExitLive()
+
+        Try
+            SaveScanData()
+
+            Stage.MoveAbsolute(Stage.Xaxe, 0)
+            Stage.MoveAbsolute(Stage.Yaxe, 0)
+            Stage.MoveAbsolute(Stage.Zaxe, 20)
+            Thread.Sleep(1000)
+            Stage.DisposeCom(DialogResult.OK)
+
+            MessageBox.Show("Done.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information)
+
+        Catch ex As Exception
+        End Try
+
+        MsgBox("Session ended. To start a new session, click the 'Load' button and enter a new Patient ID.", MsgBoxStyle.Information, "Session Ended")
+        PatientID = ""
+
+        GoLive()
+    End Sub
+
 
     Private Sub TabControl1_DrawItem(sender As Object, e As DrawItemEventArgs)
         Dim g As Graphics = e.Graphics
@@ -630,39 +777,39 @@ Public Class Form1
 
     End Sub
 
-    Private Sub Button31_Click(sender As Object, e As EventArgs) Handles Button_Scan2.Click
-        Debug.WriteLine("Button31_Click: Method triggered.")
+    ' Private Sub Button31_Click(sender As Object, e As EventArgs) Handles Button_Scan2.Click
+    ' Debug.WriteLine("Button31_Click: Method triggered.")
 
-        ExitLive()
+    ' ExitLive()
 
-        If Scanning Then
-            Debug.WriteLine("Button31_Click: Scanning is True, exiting early.")
-            Scanning = False
-            Button_Scan2.Text = "Scan"
-            GoLive()
-            Exit Sub
-        End If
+    'If Scanning Then
+    '    Debug.WriteLine("Button31_Click: Scanning is True, exiting early.")
+    '   Scanning = False
+    '   Button_Scan2.Text = "Scan"
+    '  GoLive()
+    '  Exit Sub
+    ' End If
 
-        Debug.WriteLine("Button31_Click: About to show MessageBox.")
-        If MessageBox.Show("The scan process is about to begin. Ensure all settings are correct. Continue?",
-                       "Start Scan", MessageBoxButtons.YesNo, MessageBoxIcon.Information) = DialogResult.No Then
-            Debug.WriteLine("Button31_Click: User clicked No on the MessageBox.")
-            GoLive()
-            Exit Sub
-        End If
+    ' Debug.WriteLine("Button31_Click: About to show MessageBox.")
+    'If 'MessageBox.Show("The scan process is about to begin. Ensure all settings are correct. Continue?",
+    '            "Start Scan", MessageBoxButtons.YesNo, MessageBoxIcon.Information) = DialogResult.No Then
+    ' Debug.WriteLine("Button31_Click: User clicked No on the MessageBox.")
+    ' GoLive()
+    'Exit Sub
+    '  End If
 
-        Debug.WriteLine("Button31_Click: User clicked Yes, proceeding with scan.")
-        SaveFileDialog1.DefaultExt = ".tif"
-        If SaveFileDialog1.ShowDialog = DialogResult.Cancel Then
-            Debug.WriteLine("Button31_Click: Save dialog cancelled.")
-            GoLive()
-            Exit Sub
-        End If
-        SaveFileDialog1.AddExtension = True
+    '  Debug.WriteLine("Button31_Click: User clicked Yes, proceeding with scan.")
+    '   SaveFileDialog1.DefaultExt = ".tif"
+    'If SaveFileDialog1.ShowDialog = DialogResult.Cancel Then
+    '      Debug.WriteLine("Button31_Click: Save dialog cancelled.")
+    '       GoLive()
+    'Exit Sub
+    'End If
+    '   SaveFileDialog1.AddExtension = True
 
-        Debug.WriteLine("Button31_Click: Starting FastScan.")
-        FastScan(TextBoxX.Text, TextBoxY.Text, ScanOverlap, SaveFileDialog1.FileName)
-    End Sub
+    '   Debug.WriteLine("Button31_Click: Starting FastScan.")
+    '   FastScan(TextBoxX.Text, TextBoxY.Text, ScanOverlap, SaveFileDialog1.FileName)
+    ' End Sub
 
 
 
@@ -1115,16 +1262,16 @@ Public Class Form1
         Acquire()
     End Sub
 
-    Private Sub Button6_Click(sender As Object, e As EventArgs) Handles Button6.Click
-        UpdateLED(False)
-        ExitLive()
-        Preview.MovetoLoad()
-        MsgBox("Load the sample and hit OK.")
-        Preview.MovetoPreview()
-        GetPreview()
-        Stage.GoToMiddle()
-        GoLive()
-    End Sub
+    ' Private Sub Button6_Click(sender As Object, e As EventArgs) Handles Button6.Click
+    '   UpdateLED(False)
+    '   ExitLive()
+    '   Preview.MovetoLoad()
+    '   MsgBox("Load the sample and hit OK.")
+    '  Preview.MovetoPreview()
+    '  GetPreview()
+    '  Stage.GoToMiddle()
+    '  GoLive()
+    ' End Sub
 
     Public Sub GetPreview(Optional wait As Boolean = True)
 
@@ -1896,19 +2043,6 @@ Public Class Form1
 
     Private Sub TextBox_RichardScale_TextChanged(sender As Object, e As EventArgs) Handles TextBox_RichardScale.TextChanged
 
-    End Sub
-    Private Sub Button_Done_Click(sender As Object, e As EventArgs) Handles Button_Done.Click
-        ExitLive()
-        Try
-            Stage.MoveAbsolute(Stage.Xaxe, 0) 'changed to 0 JH
-            Stage.MoveAbsolute(Stage.Yaxe, 0)
-            Stage.MoveAbsolute(Stage.Zaxe, 20) 'changed to 20 JH
-            Thread.Sleep(1000)
-            Stage.DisposeCom(
-            MessageBox.Show("Done.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information))
-        Catch
-        End Try
-        GoLive()
     End Sub
 
     Private Sub Button_Reset_Click(sender As Object, e As EventArgs)
